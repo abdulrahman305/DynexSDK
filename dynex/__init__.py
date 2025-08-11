@@ -26,7 +26,7 @@ STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
 THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
-__version__ = "0.1.24"
+__version__ = "0.1.26"
 __author__ = 'Dynex Developers'
 __credits__ = 'Dynex Developers, Contributors, Supporters and the Dynex Community'
 
@@ -117,9 +117,14 @@ __credits__ = 'Dynex Developers, Contributors, Supporters and the Dynex Communit
 # Changelog 0.1.24:
 # + bugfix native circuit execution
 
-# Upcoming:
-# - Multi-model parallel sampling (f.e. for parameter tuning jobs, etc.)
+# Changelog 0.1.25:
+# + bugfixes native circuit execution
+# + default to v2
 
+# Changelog 0.1.26:
+# + updated ground state display to match BQM
+# + minor fixes
+# + preprocessing feature
 
 ################################################################################################################################
 # IMPORTS
@@ -139,6 +144,7 @@ import dimod
 from itertools import combinations
 import time
 import numpy as np
+import neal
 
 # ini config reader:
 import configparser
@@ -185,7 +191,6 @@ try:
 except:
     print(
         '[DYNEX] WARNING: missing configuration file dynex.ini. Please follow the installation instructions at \nhttps://github.com/dynexcoin/DynexSDK/wiki/Installing-the-Dynex-SDK');
-
 
 def account_status():
     """
@@ -470,7 +475,7 @@ def _post_request(url, opts, file_path):
 
 
 def _upload_job_api(sampler, annealing_time, switchfraction, num_reads, alpha=20, beta=20, gamma=1, delta=1, epsilon=1,
-                    zeta=1, minimum_stepsize=0.00000006, logging=True, block_fee=0, is_cluster=False, cluster_type=1, shots=1, v2=False, target_energy=0):
+                    zeta=1, minimum_stepsize=0.05, logging=True, block_fee=0, is_cluster=True, cluster_type=1, shots=1, v2=True, target_energy=0):
     """
     `Internal Function`
     
@@ -491,6 +496,7 @@ def _upload_job_api(sampler, annealing_time, switchfraction, num_reads, alpha=20
         block_fee = _price_oracle();
 
     print('[DYNEX] AVERAGE BLOCK FEE:', '{:,}'.format(block_fee / 1000000000), 'DNX')
+    print('[DYNEX] TARGET ENERGY:',target_energy);
 
     # parameters:
     url = API_ENDPOINT + '/v2/sdk/job/create?api_key=' + API_KEY + '&api_secret=' + API_SECRET;
@@ -510,7 +516,7 @@ def _upload_job_api(sampler, annealing_time, switchfraction, num_reads, alpha=20
                 "cluster_type": cluster_type,
                 "shots": shots,
                 "solver_family": 0,
-                "target_energy": target_energy
+                "target_energy": target_energy,
             }
         };
     else:
@@ -528,7 +534,8 @@ def _upload_job_api(sampler, annealing_time, switchfraction, num_reads, alpha=20
                 "shots": shots,
                 "solver_family": 1,
                 "target_energy": target_energy,
-                "population_size": annealing_time
+                "population_size": annealing_time,
+                "use_gpu": False
             }
         };
 
@@ -550,9 +557,6 @@ def _upload_job_api(sampler, annealing_time, switchfraction, num_reads, alpha=20
         retval = jsondata['job_id'];
         link = jsondata['link'];
         filename = link.split('/')[-1];
-        # display applicable block fee:
-        price_per_block = jsondata['price_per_block'];
-        print('[DYNEX] COST OF COMPUTE:', '{:,}'.format(price_per_block / 1000000000), 'DNX')
         # qasm data:
         if 'qasm' in jsondata:
             qasm = jsondata['qasm'];
@@ -1159,8 +1163,6 @@ def _convert_bqm_to_qubo_direct(bqm, relabel=True, logging=True):
             print("[ÐYNEX] PRECISION CUT FROM", precision, "TO 1");
         precision = 1;
 
-    print('***', 'precision:',precision,'***');
-    
     if logging:
         print("[DYNEX] PRECISION SET TO", precision);
 
@@ -1576,8 +1578,8 @@ def _sample_thread(q, x, model, logging, mainnet, description, num_reads, anneal
 ################################################################################################################################
 def sample_qubo(Q, offset=0.0, logging=True, formula=2, mainnet=False, description='Dynex SDK Job', test=False,
                 bnb=True, num_reads=32, annealing_time=10, clones=1, switchfraction=0.0, alpha=20, beta=20, gamma=1,
-                delta=1, epsilon=1, zeta=1, minimum_stepsize=0.00000006, debugging=False, block_fee=0, is_cluster=False, cluster_type=1,
-                shots=1, v2=False):
+                delta=1, epsilon=1, zeta=1, minimum_stepsize=0.05, debugging=False, block_fee=0, is_cluster=True, cluster_type=1,
+                shots=1, v2=True):
     """
     Samples a Qubo problem.
     
@@ -1663,8 +1665,8 @@ def sample_qubo(Q, offset=0.0, logging=True, formula=2, mainnet=False, descripti
 
 def sample_ising(h, j, logging=True, formula=2, mainnet=False, description='Dynex SDK Job', test=False, bnb=True,
                  num_reads=32, annealing_time=10, clones=1, switchfraction=0.0, alpha=20, beta=20, gamma=1, delta=1,
-                 epsilon=1, zeta=1, minimum_stepsize=0.00000006, debugging=False, block_fee=0, is_cluster=False,
-                 shots=1, cluster_type=1, v2=False):
+                 epsilon=1, zeta=1, minimum_stepsize=0.05, debugging=False, block_fee=0, is_cluster=True,
+                 shots=1, cluster_type=1, v2=True):
     """
     Samples an Ising problem.
     
@@ -1727,7 +1729,7 @@ def sample_ising(h, j, logging=True, formula=2, mainnet=False, description='Dyne
 
 def sample(bqm, logging=True, formula=2, mainnet=False, description='Dynex SDK Job', test=False, bnb=True, num_reads=32,
            annealing_time=10, clones=1, switchfraction=0.0, alpha=20, beta=20, gamma=1, delta=1, epsilon=1, zeta=1,
-           minimum_stepsize=0.00000006, debugging=False, block_fee=0, is_cluster=False, shots=1, cluster_type=1, v2=False):
+           minimum_stepsize=0.05, debugging=False, block_fee=0, is_cluster=True, shots=1, cluster_type=1, v2=True, preprocess=False):
     """
     Samples a Binary Quadratic Model (bqm).
     
@@ -1805,7 +1807,8 @@ def sample(bqm, logging=True, formula=2, mainnet=False, description='Dynex SDK J
     sampleset = sampler.sample(num_reads=num_reads, annealing_time=annealing_time, clones=clones,
                                switchfraction=switchfraction, alpha=alpha, beta=beta, gamma=gamma, delta=delta,
                                epsilon=epsilon, zeta=zeta, minimum_stepsize=minimum_stepsize, debugging=debugging,
-                               block_fee=block_fee, is_cluster=is_cluster, shots=shots, cluster_type=cluster_type);
+                               block_fee=block_fee, is_cluster=is_cluster, shots=shots, cluster_type=cluster_type, 
+                               v2=v2, preprocess=preprocess);
     return sampleset
 
 
@@ -1834,7 +1837,7 @@ class DynexSampler:
 
     """
 
-    def __init__(self, model, logging=True, mainnet=True, description='Dynex SDK Job', test=False, bnb=True, v2=False):
+    def __init__(self, model, logging=True, mainnet=True, description='Dynex SDK Job', test=False, bnb=True, v2=True):
 
         # multi-model parallel sampling
         if isinstance(model, list):
@@ -1854,8 +1857,8 @@ class DynexSampler:
         self.v2 = v2;
 
     def sample(self, num_reads=32, annealing_time=10, clones=1, switchfraction=0.0, alpha=20, beta=20, gamma=1, delta=1,
-               epsilon=1, zeta=1, minimum_stepsize=0.00000006, debugging=False, block_fee=0, is_cluster=False, shots=1,
-               cluster_type=1):
+               epsilon=1, zeta=1, minimum_stepsize=0.05, debugging=False, block_fee=0, is_cluster=True, shots=1,
+               cluster_type=1, preprocess=False):
         """
         The main sampling function:
 
@@ -1948,7 +1951,7 @@ class DynexSampler:
         if clones == 1:
             _sampler = _DynexSampler(self.model, self.logging, self.mainnet, self.description, self.test, self.bnb, self.v2);
             _sampleset = _sampler.sample(num_reads, annealing_time, switchfraction, alpha, beta, gamma, delta, epsilon,
-                                         zeta, minimum_stepsize, debugging, block_fee, is_cluster, shots, cluster_type);
+                                         zeta, minimum_stepsize, debugging, block_fee, is_cluster, shots, cluster_type, preprocess);
             return _sampleset;
 
         # sampling with clones: ----------------------------------------------------------------------------------------------
@@ -2012,7 +2015,7 @@ class _DynexSampler:
     """
 
     def __init__(self, model, logging=True, mainnet=True, description='Dynex SDK Job', test=False,
-                 bnb=True, v2=False, filename_override=''):
+                 bnb=True, v2=True, filename_override=''):
 
         if not test and not _test_completed():
             raise Exception("CONFIGURATION TEST NOT COMPLETED. PLEASE RUN 'dynex.test()'");
@@ -2097,7 +2100,7 @@ class _DynexSampler:
                 _save_wcnf(self.clauses, self.filepath + self.filename, self.num_variables, self.num_clauses, mainnet, v2, self.var_mappings);
 
             if model.type == 'qasm':
-                self.clauses = None;
+                self.clauses = [0,-9999999999];
                 self.num_variables = None;
                 self.num_clauses = None;
                 self.var_mappings = None;
@@ -2641,8 +2644,8 @@ class _DynexSampler:
 
     # sampling entry point: =================================================================================================================
     def sample(self, num_reads=32, annealing_time=10, switchfraction=0.0, alpha=20, beta=20, gamma=1, delta=1,
-               epsilon=1, zeta=1, minimum_stepsize=0.00000006, debugging=False, block_fee=0, is_cluster=False, shots=1,
-               cluster_type=1):
+               epsilon=1, zeta=1, minimum_stepsize=0.05, debugging=False, block_fee=0, is_cluster=True, shots=1,
+               cluster_type=1, preprocess=False):
         """
         `Internal Function` which is called by public function `DynexSampler.sample` 
         """
@@ -2655,7 +2658,7 @@ class _DynexSampler:
 
         for i in range(0, NUM_RETRIES):
             retval = self._sample(num_reads, annealing_time, switchfraction, alpha, beta, gamma, delta, epsilon, zeta,
-                                  minimum_stepsize, debugging, block_fee, is_cluster, shots, cluster_type);
+                                  minimum_stepsize, debugging, block_fee, is_cluster, shots, cluster_type, preprocess);
             if len(retval) > 0:
                 break;
 
@@ -2683,8 +2686,8 @@ class _DynexSampler:
 
     # main sampling function =================================================================================================================
     def _sample(self, num_reads=32, annealing_time=10, switchfraction=0.0, alpha=20, beta=20, gamma=1, delta=1,
-                epsilon=1, zeta=1, minimum_stepsize=0.00000006, debugging=False, block_fee=0, is_cluster=False, shots=1,
-                cluster_type=1):
+                epsilon=1, zeta=1, minimum_stepsize=0.05, debugging=False, block_fee=0, is_cluster=True, shots=1,
+                cluster_type=1, preprocess=False):
         """
         `Internal Function` which is called by private function `DynexSampler.sample`. This functions performs the sampling. 
         """
@@ -2698,6 +2701,43 @@ class _DynexSampler:
         mainnet = self.mainnet;
         price_per_block = 0;
         self.cnt_solutions = 0;
+        dimod_sample = [];
+
+        # ensure correct ground state display:
+        if self.v2 and self.bqm!=None:
+            self.model.wcnf_offset = self.bqm.offset;
+            self.model.precision = 1;
+
+        # Preprocess:
+        if self.v2 and self.bqm!=None and preprocess:
+            sampler_sa = neal.SimulatedAnnealingSampler();
+            sampleset = [];
+            for shot in range(0, shots):
+                print("[DYNEX] *** WAITING FOR READS ***");
+                start_time = time.time()
+                _sampleset = sampler_sa.sample(self.bqm, num_reads=num_reads, num_sweeps=annealing_time)
+                if sampleset == []:
+                    sampleset = _sampleset;
+                else:
+                    sampleset = dimod.concatenate([sampleset, _sampleset])
+            end_time = time.time()
+            elapsed_time = end_time - start_time # in s
+            elapsed_time *= 100;
+            
+            print("[DYNEX] PREPROCESSED WITH ENERGY",sampleset.first.energy,", OFFSET=",self.bqm.offset);
+            if (sampleset.first.energy<=0):
+                if self.logging:
+                    print("[DYNEX] FINISHED READ AFTER", "%.2f" % elapsed_time, "SECONDS");
+                table = ([
+                ['DYNEXJOB', 'QUBITS', 'QUANTUM GATES', 'BLOCK FEE', 'ELAPSED', 'WORKERS READ', 'CIRCUITS',
+                 'STEPS', 'GROUND STATE']]);
+                table.append(['-1', self.num_variables, self.num_clauses, 0, '',
+                              '*** WAITING FOR READS ***', '', '', '']);
+                ta = tabulate(table, headers="firstrow", tablefmt='rounded_grid', floatfmt=".2f");
+                print(ta + '\n');
+                return sampleset;
+            
+            dimod_sample = [sampleset.first.sample];
 
         try:
 
@@ -2719,6 +2759,7 @@ class _DynexSampler:
 
                 # show effective price in DNX:
                 price_per_block = price_per_block / 1000000000;
+
                 # parse qasm data:
                 if self.type == 'qasm':
                     _data = qasm;
@@ -2741,9 +2782,9 @@ class _DynexSampler:
                         self.num_variables = _model.num_variables;
                         self.num_clauses = _model.num_clauses;
                     else:
-                        self.num_variables = model.bqm.num_variables;
-                        self.num_clauses = len(model.bqm.to_qubo()[0]);
-                        self.clauses = model.bqm.to_qubo();
+                        self.num_variables = _model.bqm.num_variables;
+                        self.num_clauses = len(_model.bqm.to_qubo()[0]);
+                        self.clauses = _model.bqm.to_qubo();
                     self.var_mappings = _model.var_mappings;
                     self.precision = _model.precision;
                     _save_wcnf(self.clauses, self.filepath + self.filename, self.num_variables, self.num_clauses,
@@ -2773,7 +2814,7 @@ class _DynexSampler:
                             sys.stdout.write(c.decode('utf-8'))
                     else:
                         if self.logging:
-                            print("[DYNEX|TESTNET] *** WAITING FOR READS ***");
+                            print("[DYNEX] *** WAITING FOR READS ***");
                             process.wait();
                     # read returned model:
                     f = open(self.model.qasm_filepath + self.model.qasm_filename + '.model', "r", encoding="utf-8");
@@ -2781,9 +2822,9 @@ class _DynexSampler:
                     _feed_dict = _data['feed_dict'];
                     _model = _data['model'];
                     if debugging:
-                        print('[DYNEX|TESTNET] feed_dict:');
+                        print('[DYNEX] feed_dict:');
                         print(_feed_dict);
-                        print('[DYNEX|TESTNET] model:');
+                        print('[DYNEX] model:');
                         print(_model);
                     f.close();
                     # construct circuit model:
@@ -2798,9 +2839,9 @@ class _DynexSampler:
                         self.num_variables = _model.num_variables;
                         self.num_clauses = _model.num_clauses;
                     else:
-                        self.num_variables = model.bqm.num_variables;
-                        self.num_clauses = len(model.bqm.to_qubo()[0]);
-                        self.clauses = model.bqm.to_qubo();
+                        self.num_variables = _model.bqm.num_variables;
+                        self.num_clauses = len(_model.bqm.to_qubo()[0]);
+                        self.clauses = _model.bqm.to_qubo();
                     self.var_mappings = _model.var_mappings;
                     self.precision = _model.precision;
                     _save_wcnf(self.clauses, self.filepath + self.filename, self.num_variables, self.num_clauses,
@@ -2826,7 +2867,7 @@ class _DynexSampler:
                 if zeta != 0:
                     command = command + " --zeta=" + str(zeta);
 
-                # use branch-and-bound (testnet) sampler instead?:
+                # use branch-and-bound (testnet) sampler?:
                 if self.bnb:
                     command = self.solverpath + "dynex-testnet-bnb " + self.filepath_full + "/" + self.filename;
 
@@ -2835,16 +2876,18 @@ class _DynexSampler:
                     command = self.solverpath + "dynexcore"; 
                     command += " file=" + self.filepath_full + "/" + self.filename;
                     command += " num_steps=" + str(annealing_time);
-                    command += " population_size=" + str(annealing_time);
+                    command += " population_size=" + str(num_reads);
                     command += " max_iterations=" + str(num_reads);
                     command += " target_energy=" + str(0.0-self.clauses[1]);
-                    #command += " ode_steps=" + str(annealing_time);
-                    #command += " search_steps=" + str(annealing_time);
-                    #command += " mutation_rate=10";
+                    #command += " ode_steps=" + str(annealing_time); #
+                    #command += " search_steps=" + str(1000000); #
+                    #command += " mutation_rate=10"; 
                     command += " init_dt=" + str(minimum_stepsize);
+                    command += " cpu_threads=4";
                     #command += " gpu_index=0";
-                    print("[DYNEX DEBUG] Solver command:", command);
+                    #print("[DYNEX DEBUG] Solver command:", command);
 
+                # Invoke sampler:
                 for shot in range(0, shots):
                     process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
                     if debugging:
@@ -2852,7 +2895,7 @@ class _DynexSampler:
                             sys.stdout.write(c.decode('utf-8'))
                     else:
                         if self.logging:
-                            print("[DYNEX|TESTNET] *** WAITING FOR READS ***");
+                            print("[DYNEX] *** WAITING FOR READS ***");
                         process.wait();
                     # add salt:
                     self.add_salt_local();
@@ -3016,7 +3059,6 @@ class _DynexSampler:
             total_chips = 0;
             total_steps = 0;
             lowest_set = [];
-            dimod_sample = [];
             for file in files:
                 if self.type == 'cnf':
                     info = file[len(self.filename) + 1:];
@@ -3144,7 +3186,7 @@ class _DynexSampler:
                 self.dimod_assignments = dimod.SampleSet.from_samples_bqm(dimod_sample, self.bqm);
 
             if self.logging:
-                print("[DYNEX] SAMPLESET READY");
+                print("[DYNEX] SAMPLESET READY WITH ENERGY",self.dimod_assignments.first.energy);
 
             # create return sampleset: ------------------------------------------------------------------------------------------------------
             sampleset_clean = [];
